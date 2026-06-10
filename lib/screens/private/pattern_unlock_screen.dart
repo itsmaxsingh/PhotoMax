@@ -19,6 +19,8 @@ class _PatternUnlockScreenState extends State<PatternUnlockScreen> {
     final prefs = await SharedPreferences.getInstance();
     final savedPatternJson = prefs.getString('pattern');
 
+    if (!mounted) return;
+
     if (savedPatternJson == null) {
       Navigator.pop(context, false);
       return;
@@ -134,6 +136,8 @@ class _ForgotPatternDialogState extends State<_ForgotPatternDialog> {
   Future<void> _verifyAnswer() async {
     final prefs = await SharedPreferences.getInstance();
     final savedAnswer = prefs.getString('security_answer');
+
+    if (!mounted) return;
 
     if (savedAnswer == null) {
       ScaffoldMessenger.of(context).showSnackBar(

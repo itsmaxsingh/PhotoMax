@@ -21,8 +21,8 @@ class PatternLock extends StatefulWidget {
 }
 
 class _PatternLockState extends State<PatternLock> {
-  List<int> _pattern = [];
-  Set<int> _selectedDots = {};
+  final List<int> _pattern = [];
+  final Set<int> _selectedDots = {};
   Offset? _currentPosition;
 
   // 3x3 grid positions (0-8)
@@ -216,9 +216,9 @@ class _PatternPainter extends CustomPainter {
       final outerPaint = Paint()
         ..color = isSelected
             ? (showError
-                ? Colors.red.withOpacity(0.3)
-                : AppColors.accentBlue.withOpacity(0.3))
-            : Colors.grey.withOpacity(0.3)
+                ? Colors.red.withValues(alpha: 0.3)
+                : AppColors.accentBlue.withValues(alpha: 0.3))
+            : Colors.grey.withValues(alpha: 0.3)
         ..style = PaintingStyle.fill;
 
       canvas.drawCircle(dotPositions[i], 30, outerPaint);

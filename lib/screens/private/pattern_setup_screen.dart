@@ -160,7 +160,7 @@ class _PatternSetupScreenState extends State<PatternSetupScreen> {
           ),
           const SizedBox(height: 32),
           DropdownButtonFormField<String>(
-            value: _selectedQuestion,
+            initialValue: _selectedQuestion, // <-- To this!
             decoration: const InputDecoration(
               labelText: 'Security Question',
               border: OutlineInputBorder(),

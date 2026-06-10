@@ -5,6 +5,8 @@ class Album {
   String? coverAssetId;
   final DateTime createdAt;
   final bool isPrivate;
+  final bool isPinned; // ✅ NEW
+  final bool isHidden; // ✅ NEW
 
   Album({
     required this.id,
@@ -12,6 +14,8 @@ class Album {
     this.coverAssetId,
     DateTime? createdAt,
     this.isPrivate = false,
+    this.isPinned = false, // ✅ NEW
+    this.isHidden = false, // ✅ NEW
   }) : createdAt = createdAt ?? DateTime.now();
 
   Map<String, dynamic> toJson() {
@@ -21,6 +25,8 @@ class Album {
       'coverAssetId': coverAssetId,
       'createdAt': createdAt.toIso8601String(),
       'isPrivate': isPrivate,
+      'isPinned': isPinned, // ✅ NEW
+      'isHidden': isHidden, // ✅ NEW
     };
   }
 
@@ -31,6 +37,26 @@ class Album {
       coverAssetId: json['coverAssetId'] as String?,
       createdAt: DateTime.parse(json['createdAt'] as String),
       isPrivate: json['isPrivate'] as bool? ?? false,
+      isPinned: json['isPinned'] as bool? ?? false, // ✅ NEW
+      isHidden: json['isHidden'] as bool? ?? false, // ✅ NEW
+    );
+  }
+
+  // ✅ NEW: Copy with method for updates
+  Album copyWith({
+    String? name,
+    String? coverAssetId,
+    bool? isPinned,
+    bool? isHidden,
+  }) {
+    return Album(
+      id: id,
+      name: name ?? this.name,
+      coverAssetId: coverAssetId ?? this.coverAssetId,
+      createdAt: createdAt,
+      isPrivate: isPrivate,
+      isPinned: isPinned ?? this.isPinned,
+      isHidden: isHidden ?? this.isHidden,
     );
   }
 

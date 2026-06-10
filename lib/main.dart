@@ -1,19 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'screens/photos/photos_screen.dart';
 import 'screens/albums/albums_screen.dart';
 import 'widgets/bottom_pill_navigation.dart';
-import 'utils/app_colors.dart';
 
 void main() {
-  // Set system UI overlay style (status bar)
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.dark,
-    ),
-  );
-
   runApp(const PhotoMaxApp());
 }
 
@@ -26,51 +16,86 @@ class PhotoMaxApp extends StatelessWidget {
       title: 'PhotoMax',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: AppColors.accentBlue,
-          brightness: Brightness.light,
-        ),
-        scaffoldBackgroundColor: AppColors.background,
-        useMaterial3: true,
+        primarySwatch: Colors.blue,
+        scaffoldBackgroundColor: Colors.white,
+        fontFamily: 'Roboto',
       ),
-      home: const MainScreen(),
+      home: const MainLayoutScreen(),
     );
   }
 }
 
-/// Main screen with bottom navigation
-class MainScreen extends StatefulWidget {
-  const MainScreen({super.key});
+class MainLayoutScreen extends StatefulWidget {
+  const MainLayoutScreen({super.key});
 
   @override
-  State<MainScreen> createState() => _MainScreenState();
+  State<MainLayoutScreen> createState() => _MainLayoutScreenState();
 }
 
-class _MainScreenState extends State<MainScreen> {
-  int _currentIndex = 0; // 0 = Photos, 1 = Albums
-  int _tapCount = 0; // Track total tab switches (for learning)
+class _MainLayoutScreenState extends State<MainLayoutScreen> {
+  int _currentIndex = 0;
+  bool _isSelectionMode = false; // ✅ NEW: Tracks if we are selecting photos
 
-  // List of screens corresponding to each tab
-  final List<Widget> _screens = const [
-    PhotosScreen(),
-    AlbumsScreen(),
-  ];
+  final PageController _pageController = PageController(initialPage: 0);
+
+  void _onTabTapped(int index) {
+    setState(() {
+      _currentIndex = index;
+    });
+    _pageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+    );
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _screens[_currentIndex], // Display current screen
+      body: Stack(
+        children: [
+          PageView(
+            controller: _pageController,
+            physics: const BouncingScrollPhysics(),
+            onPageChanged: (index) {
+              setState(() {
+                _currentIndex = index;
+              });
+            },
+            children: [
+              // ✅ NEW: Passes the selection state signal up to this main file
+              PhotosScreen(
+                onSelectionModeChanged: (isSelecting) {
+                  setState(() {
+                    _isSelectionMode = isSelecting;
+                  });
+                },
+              ),
+              const AlbumsScreen(),
+            ],
+          ),
 
-      // Bottom Navigation
-      bottomNavigationBar: BottomPillNavigation(
-        currentIndex: _currentIndex,
-        onTap: (index) {
-          setState(() {
-            _currentIndex = index; // Switch tab
-            _tapCount++; // Increment counter
-            print('Tab switched! Total taps: $_tapCount'); // Debug output
-          });
-        },
+          // ✅ NEW: Smoothly animates the pill off the bottom of the screen!
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeInOutBack,
+            bottom: _isSelectionMode
+                ? -100
+                : 0, // Moves it down 100 pixels when selecting
+            left: 0,
+            right: 0,
+            child: BottomPillNavigation(
+              currentIndex: _currentIndex,
+              onTap: _onTabTapped,
+            ),
+          ),
+        ],
       ),
     );
   }

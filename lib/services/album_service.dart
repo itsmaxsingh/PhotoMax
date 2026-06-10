@@ -2,12 +2,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import '../models/album.dart';
 
-/// Manages album operations using SharedPreferences
 class AlbumService {
   static const String _albumsKey = 'user_albums';
   static List<Album> _userAlbums = [];
 
-  /// Initialize and load albums from storage
   static Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
     final albumsJson = prefs.getString(_albumsKey);
@@ -20,40 +18,61 @@ class AlbumService {
     }
   }
 
-  /// Save albums to storage
   static Future<void> _saveAlbums() async {
     final prefs = await SharedPreferences.getInstance();
     final albumsJson = json.encode(_userAlbums.map((e) => e.toJson()).toList());
     await prefs.setString(_albumsKey, albumsJson);
   }
 
-  /// Get all albums (system + user)
+  // ─────────────────────────────────────────
+  // GET METHODS
+  // ─────────────────────────────────────────
+
   static List<Album> getAllAlbums() {
     return [...Album.systemAlbums, ..._userAlbums];
   }
 
-  /// Get user-created albums only
   static List<Album> getUserAlbums() {
-    return _userAlbums;
+    return List.from(_userAlbums);
   }
 
-  /// Get album by ID
+  // ✅ NEW: Returns only visible (not hidden) user albums
+  static List<Album> getVisibleUserAlbums() {
+    return _userAlbums
+        .where((album) => !album.isHidden && !album.isPrivate)
+        .toList();
+  }
+
+  // ✅ NEW: Returns only hidden albums
+  static List<Album> getHiddenAlbums() {
+    return _userAlbums.where((album) => album.isHidden).toList();
+  }
+
+  // ✅ NEW: Returns pinned user albums
+  static List<Album> getPinnedAlbums() {
+    return _userAlbums.where((album) => album.isPinned).toList();
+  }
+
   static Album? getAlbumById(String id) {
-    // Check system albums first
     try {
       return Album.systemAlbums.firstWhere((a) => a.id == id);
-    } catch (e) {
-      // Not found in system albums, check user albums
+    } catch (_) {
       try {
         return _userAlbums.firstWhere((a) => a.id == id);
-      } catch (e) {
+      } catch (_) {
         return null;
       }
     }
   }
 
-  /// Create new album
-  static Future<void> createAlbum(String name, {bool isPrivate = false}) async {
+  // ─────────────────────────────────────────
+  // CREATE / DELETE
+  // ─────────────────────────────────────────
+
+  static Future<void> createAlbum(
+    String name, {
+    bool isPrivate = false,
+  }) async {
     final newAlbum = Album(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       name: name,
@@ -63,31 +82,72 @@ class AlbumService {
     await _saveAlbums();
   }
 
-  /// Delete album (only user albums, not system albums)
   static Future<void> deleteAlbum(String id) async {
     _userAlbums.removeWhere((album) => album.id == id);
     await _saveAlbums();
   }
 
-  /// Update album cover image
-  static Future<void> updateAlbumCover(String albumId, String assetId) async {
+  // ─────────────────────────────────────────
+  // UPDATE METHODS
+  // ─────────────────────────────────────────
+
+  static Future<void> updateAlbumCover(
+    String albumId,
+    String assetId,
+  ) async {
     final index = _userAlbums.indexWhere((a) => a.id == albumId);
     if (index != -1) {
-      _userAlbums[index].coverAssetId = assetId;
+      _userAlbums[index] = _userAlbums[index].copyWith(
+        coverAssetId: assetId,
+      );
       await _saveAlbums();
     }
   }
 
-  /// Rename album
-  static Future<void> renameAlbum(String albumId, String newName) async {
+  // ✅ NEW: Generic update method
+  static Future<void> updateAlbum(
+    String albumId, {
+    String? name,
+    String? coverAssetId,
+    bool? isPinned,
+    bool? isHidden,
+  }) async {
     final index = _userAlbums.indexWhere((a) => a.id == albumId);
     if (index != -1) {
-      _userAlbums[index] = Album(
-        id: _userAlbums[index].id,
-        name: newName,
-        coverAssetId: _userAlbums[index].coverAssetId,
-        createdAt: _userAlbums[index].createdAt,
-        isPrivate: _userAlbums[index].isPrivate,
+      _userAlbums[index] = _userAlbums[index].copyWith(
+        name: name,
+        coverAssetId: coverAssetId,
+        isPinned: isPinned,
+        isHidden: isHidden,
+      );
+      await _saveAlbums();
+    }
+  }
+
+  // ✅ NEW: Rename album
+  static Future<void> renameAlbum(String albumId, String newName) async {
+    await updateAlbum(albumId, name: newName);
+  }
+
+  // ✅ NEW: Toggle pin status
+  static Future<void> togglePin(String albumId) async {
+    final index = _userAlbums.indexWhere((a) => a.id == albumId);
+    if (index != -1) {
+      final currentPinned = _userAlbums[index].isPinned;
+      _userAlbums[index] = _userAlbums[index].copyWith(
+        isPinned: !currentPinned,
+      );
+      await _saveAlbums();
+    }
+  }
+
+  // ✅ NEW: Toggle hide status
+  static Future<void> toggleHide(String albumId) async {
+    final index = _userAlbums.indexWhere((a) => a.id == albumId);
+    if (index != -1) {
+      final currentHidden = _userAlbums[index].isHidden;
+      _userAlbums[index] = _userAlbums[index].copyWith(
+        isHidden: !currentHidden,
       );
       await _saveAlbums();
     }

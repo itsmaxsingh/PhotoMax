@@ -5,7 +5,6 @@ import '../../services/deleted_photos_service.dart';
 import '../../utils/app_colors.dart';
 import 'photo_viewer_screen.dart';
 
-/// Recently deleted photos screen (30-day trash bin)
 class RecentlyDeletedScreen extends StatefulWidget {
   const RecentlyDeletedScreen({super.key});
 
@@ -14,98 +13,110 @@ class RecentlyDeletedScreen extends StatefulWidget {
 }
 
 class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
-  List<AssetEntity> _deletedAssets = [];
-  Map<String, int> _deletionTimestamps = {};
+  List<DeletedItem> _deletedItems = [];
   bool _isLoading = true;
   bool _isSelectionMode = false;
-  Set<String> _selectedAssetIds = {};
+  final Set<String> _selectedIds = {};
 
   @override
   void initState() {
     super.initState();
-    _loadDeletedPhotos();
+    _loadDeletedItems();
   }
 
-  Future<void> _loadDeletedPhotos() async {
-    setState(() => _isLoading = true);
-
-    await DeletedPhotosService.init();
-    final deletedMap = DeletedPhotosService.getAllDeletedPhotos();
-
-    final List<AssetEntity> assets = [];
-    for (final assetId in deletedMap.keys) {
-      try {
-        final asset = await AssetEntity.fromId(assetId);
-        if (asset != null) {
-          assets.add(asset);
-        }
-      } catch (e) {
-        print('Error loading deleted asset $assetId: $e');
-      }
-    }
-
+  Future<void> _loadDeletedItems() async {
     setState(() {
-      _deletedAssets = assets;
-      _deletionTimestamps = deletedMap;
-      _isLoading = false;
+      _isLoading = true;
     });
+
+    final items = await DeletedPhotosService.getDeletedItems();
+
+    if (mounted) {
+      setState(() {
+        _deletedItems = items;
+        _isLoading = false;
+      });
+    }
   }
 
-  void _toggleSelection(AssetEntity asset) {
+  void _toggleSelection(String id) {
     setState(() {
-      if (_selectedAssetIds.contains(asset.id)) {
-        _selectedAssetIds.remove(asset.id);
-        if (_selectedAssetIds.isEmpty) {
+      if (_selectedIds.contains(id)) {
+        _selectedIds.remove(id);
+        if (_selectedIds.isEmpty) {
           _isSelectionMode = false;
         }
       } else {
-        _selectedAssetIds.add(asset.id);
+        _selectedIds.add(id);
       }
     });
   }
 
-  void _enterSelectionMode(AssetEntity asset) {
+  void _enterSelectionMode(String id) {
     setState(() {
       _isSelectionMode = true;
-      _selectedAssetIds.add(asset.id);
+      _selectedIds.add(id);
     });
   }
 
   void _exitSelectionMode() {
     setState(() {
       _isSelectionMode = false;
-      _selectedAssetIds.clear();
+      _selectedIds.clear();
+    });
+  }
+
+  void _selectAll() {
+    setState(() {
+      _selectedIds.addAll(_deletedItems.map((e) => e.assetId));
+    });
+  }
+
+  void _deselectAll() {
+    setState(() {
+      _selectedIds.clear();
     });
   }
 
   Future<void> _restoreSelected() async {
-    await DeletedPhotosService.restorePhotos(_selectedAssetIds.toList());
+    final selectedIdsList = _selectedIds.toList();
+    final count = selectedIdsList.length;
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text('${_selectedAssetIds.length} photo(s) restored')),
-      );
-      _exitSelectionMode();
-      _loadDeletedPhotos();
+    await DeletedPhotosService.restorePhotos(selectedIdsList);
+
+    if (!mounted) {
+      return;
     }
+
+    _exitSelectionMode();
+    await _loadDeletedItems();
+
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Restored $count photo(s)')),
+    );
   }
 
-  Future<void> _deleteSelectedPermanently() async {
+  Future<void> _permanentlyDeleteSelected() async {
+    final selectedIdsList = _selectedIds.toList();
+    final count = selectedIdsList.length;
+
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Permanently?'),
+      builder: (ctx) => AlertDialog(
+        title: const Text('Permanently Delete?'),
         content: Text(
-          'These ${_selectedAssetIds.length} photo(s) will be permanently deleted and cannot be recovered.',
-        ),
+            'These $count photo(s) will be permanently deleted from your device. This cannot be undone.'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () => Navigator.pop(ctx, false),
             child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(ctx, true),
             style: TextButton.styleFrom(foregroundColor: Colors.red),
             child: const Text('Delete'),
           ),
@@ -113,102 +124,108 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
       ),
     );
 
-    if (confirm == true) {
-      for (final assetId in _selectedAssetIds) {
-        await DeletedPhotosService.permanentlyDeletePhoto(assetId);
-      }
+    if (confirm != true) {
+      return;
+    }
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Photos permanently deleted')),
-        );
-        _exitSelectionMode();
-        _loadDeletedPhotos();
+    final selectedItems =
+        _deletedItems.where((i) => _selectedIds.contains(i.assetId)).toList();
+
+    for (final item in selectedItems) {
+      try {
+        final asset = await AssetEntity.fromId(item.assetId);
+        if (asset != null) {
+          final file = await asset.file;
+          if (file != null && await file.exists()) {
+            await file.delete();
+          }
+        }
+      } catch (e) {
+        debugPrint('Error deleting file: $e');
       }
     }
-  }
 
-  Future<void> _emptyTrash() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Empty Trash?'),
-        content: const Text(
-          'All photos in Recently Deleted will be permanently removed and cannot be recovered.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Empty Trash'),
-          ),
-        ],
-      ),
+    await DeletedPhotosService.restorePhotos(selectedIdsList);
+
+    if (!mounted) {
+      return;
+    }
+
+    _exitSelectionMode();
+    await _loadDeletedItems();
+
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Permanently deleted $count photo(s)')),
     );
-
-    if (confirm == true) {
-      await DeletedPhotosService.emptyTrash();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Trash emptied')),
-        );
-        _loadDeletedPhotos();
-      }
-    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: _isSelectionMode
-          ? AppBar(
-              backgroundColor: AppColors.accentBlue,
-              elevation: 0,
-              leading: IconButton(
-                icon: const Icon(Icons.close, color: Colors.white),
-                onPressed: _exitSelectionMode,
-              ),
-              title: Text(
-                '${_selectedAssetIds.length} selected',
-                style: const TextStyle(color: Colors.white),
-              ),
-            )
-          : AppBar(
-              backgroundColor: AppColors.background,
-              elevation: 0,
-              title: const Text(
-                'Recently Deleted',
-                style: TextStyle(color: AppColors.textPrimary),
-              ),
-              iconTheme: const IconThemeData(color: AppColors.textPrimary),
-              actions: [
-                if (_deletedAssets.isNotEmpty)
+    return PopScope(
+      canPop: !_isSelectionMode,
+      onPopInvokedWithResult: (didPop, dynamic result) {
+        if (!didPop && _isSelectionMode) {
+          _exitSelectionMode();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.background,
+        appBar: _isSelectionMode
+            ? AppBar(
+                backgroundColor: AppColors.accentBlue,
+                elevation: 0,
+                leading: IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  onPressed: _exitSelectionMode,
+                ),
+                title: Text(
+                  '${_selectedIds.length} selected',
+                  style: const TextStyle(color: Colors.white),
+                ),
+                actions: [
                   TextButton(
-                    onPressed: _emptyTrash,
-                    child: const Text(
-                      'Empty',
-                      style: TextStyle(color: Colors.red),
+                    onPressed: () {
+                      if (_selectedIds.length == _deletedItems.length) {
+                        _deselectAll();
+                      } else {
+                        _selectAll();
+                      }
+                    },
+                    child: Text(
+                      _selectedIds.length == _deletedItems.length
+                          ? 'Deselect All'
+                          : 'Select All',
+                      style: const TextStyle(color: Colors.white),
                     ),
                   ),
-              ],
-            ),
-      body: _buildBody(),
-      bottomNavigationBar: _isSelectionMode ? _buildBottomBar() : null,
+                ],
+              )
+            : AppBar(
+                backgroundColor: AppColors.background,
+                elevation: 0,
+                title: const Text(
+                  'Recently Deleted',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                iconTheme: const IconThemeData(color: AppColors.textPrimary),
+              ),
+        body: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : _buildContent(),
+        bottomNavigationBar: _isSelectionMode ? _buildBottomBar() : null,
+      ),
     );
   }
 
-  Widget _buildBody() {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (_deletedAssets.isEmpty) {
+  Widget _buildContent() {
+    if (_deletedItems.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -216,24 +233,15 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
             Icon(
               Icons.delete_outline,
               size: 80,
-              color: AppColors.iconGray.withOpacity(0.3),
+              color: AppColors.iconGray.withValues(alpha: 0.3),
             ),
             const SizedBox(height: 16),
-            Text(
-              'No Recently Deleted Items',
+            const Text(
+              'No recently deleted items',
               style: TextStyle(
                 fontSize: 18,
                 color: AppColors.textSecondary,
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Photos you delete will appear here for 30 days',
-              style: TextStyle(
-                fontSize: 14,
-                color: AppColors.textMuted,
-              ),
-              textAlign: TextAlign.center,
             ),
           ],
         ),
@@ -242,28 +250,18 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
 
     return Column(
       children: [
-        // Info banner
-        Container(
-          padding: const EdgeInsets.all(16),
-          color: AppColors.surfaceGray,
-          child: Row(
-            children: [
-              const Icon(Icons.info_outline, size: 20),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Photos will be permanently deleted after 30 days',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
+        if (!_isSelectionMode)
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Text(
+              'Items will be permanently deleted after 30 days.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                color: AppColors.textSecondary.withValues(alpha: 0.8),
               ),
-            ],
+            ),
           ),
-        ),
-
-        // Grid
         Expanded(
           child: GridView.builder(
             padding: const EdgeInsets.all(2),
@@ -273,101 +271,116 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
               crossAxisSpacing: 2,
               childAspectRatio: 1.0,
             ),
-            itemCount: _deletedAssets.length,
+            itemCount: _deletedItems.length,
             itemBuilder: (context, index) {
-              final asset = _deletedAssets[index];
-              final isSelected = _selectedAssetIds.contains(asset.id);
-              final daysRemaining =
-                  DeletedPhotosService.getDaysRemaining(asset.id);
+              final item = _deletedItems[index];
+              final isSelected = _selectedIds.contains(item.assetId);
 
-              return GestureDetector(
-                onTap: () {
-                  if (_isSelectionMode) {
-                    _toggleSelection(asset);
-                  } else {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => PhotoViewerScreen(
-                          assets: _deletedAssets,
-                          initialIndex: index,
-                        ),
-                      ),
+              return FutureBuilder<AssetEntity?>(
+                future: AssetEntity.fromId(item.assetId),
+                builder: (context, snapshot) {
+                  final asset = snapshot.data;
+
+                  if (asset == null) {
+                    return Container(
+                      color: AppColors.surfaceGray,
+                      child: const Center(
+                          child: Icon(Icons.broken_image, color: Colors.grey)),
                     );
                   }
-                },
-                onLongPress: () {
-                  if (!_isSelectionMode) {
-                    _enterSelectionMode(asset);
-                  }
-                },
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    AssetEntityImage(
-                      asset,
-                      isOriginal: false,
-                      thumbnailSize: const ThumbnailSize.square(300),
-                      fit: BoxFit.cover,
-                    ),
 
-                    if (_isSelectionMode)
-                      Container(
-                        color: isSelected
-                            ? AppColors.accentBlue.withOpacity(0.3)
-                            : Colors.black.withOpacity(0.2),
-                      ),
-
-                    if (_isSelectionMode)
-                      Positioned(
-                        top: 6,
-                        right: 6,
-                        child: Container(
-                          width: 24,
-                          height: 24,
-                          decoration: BoxDecoration(
+                  return GestureDetector(
+                    onTap: () {
+                      if (_isSelectionMode) {
+                        _toggleSelection(asset.id);
+                      } else {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => PhotoViewerScreen(
+                              assets: [asset],
+                              initialIndex: 0,
+                            ),
+                          ),
+                        );
+                      }
+                    },
+                    onLongPress: () {
+                      if (!_isSelectionMode) {
+                        _enterSelectionMode(asset.id);
+                      }
+                    },
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        AssetEntityImage(
+                          asset,
+                          isOriginal: false,
+                          thumbnailSize: const ThumbnailSize.square(300),
+                          fit: BoxFit.cover,
+                        ),
+                        Positioned(
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 4, horizontal: 6),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.bottomCenter,
+                                end: Alignment.topCenter,
+                                colors: [
+                                  Colors.black.withValues(alpha: 0.7),
+                                  Colors.transparent,
+                                ],
+                              ),
+                            ),
+                            child: Text(
+                              '${item.daysRemaining} days',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (_isSelectionMode)
+                          Container(
                             color: isSelected
-                                ? AppColors.accentBlue
-                                : Colors.white,
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: isSelected
-                                  ? AppColors.accentBlue
-                                  : Colors.grey,
-                              width: 2,
+                                ? AppColors.accentBlue.withValues(alpha: 0.3)
+                                : Colors.black.withValues(alpha: 0.2),
+                          ),
+                        if (_isSelectionMode)
+                          Positioned(
+                            top: 6,
+                            right: 6,
+                            child: Container(
+                              width: 24,
+                              height: 24,
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? AppColors.accentBlue
+                                    : Colors.white,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: isSelected
+                                      ? AppColors.accentBlue
+                                      : Colors.grey,
+                                  width: 2,
+                                ),
+                              ),
+                              child: isSelected
+                                  ? const Icon(Icons.check,
+                                      size: 16, color: Colors.white)
+                                  : null,
                             ),
                           ),
-                          child: isSelected
-                              ? const Icon(Icons.check,
-                                  size: 16, color: Colors.white)
-                              : null,
-                        ),
-                      ),
-
-                    // Days remaining badge
-                    if (!_isSelectionMode)
-                      Positioned(
-                        bottom: 6,
-                        right: 6,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.7),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            '$daysRemaining days',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
+                      ],
+                    ),
+                  );
+                },
               );
             },
           ),
@@ -382,13 +395,13 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withValues(alpha: 0.1),
             blurRadius: 10,
             offset: const Offset(0, -2),
           ),
         ],
       ),
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
       child: SafeArea(
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -396,13 +409,14 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
             _buildActionButton(
               icon: Icons.restore,
               label: 'Restore',
+              color: AppColors.accentBlue,
               onPressed: _restoreSelected,
             ),
             _buildActionButton(
               icon: Icons.delete_forever,
               label: 'Delete',
               color: Colors.red,
-              onPressed: _deleteSelectedPermanently,
+              onPressed: _permanentlyDeleteSelected,
             ),
           ],
         ),
@@ -414,23 +428,24 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
     required IconData icon,
     required String label,
     required VoidCallback onPressed,
-    Color? color,
+    required Color color,
   }) {
     return InkWell(
       onTap: onPressed,
       borderRadius: BorderRadius.circular(8),
       child: Padding(
-        padding: const EdgeInsets.all(8),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 26, color: color ?? AppColors.textPrimary),
+            Icon(icon, size: 28, color: color),
             const SizedBox(height: 4),
             Text(
               label,
               style: TextStyle(
                 fontSize: 12,
-                color: color ?? AppColors.textPrimary,
+                fontWeight: FontWeight.w600,
+                color: color,
               ),
             ),
           ],

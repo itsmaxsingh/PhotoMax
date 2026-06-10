@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import '../utils/app_colors.dart';
 
-/// Custom bottom navigation bar with pill/capsule shape
+/// Custom bottom navigation bar with floating pill shape matching Redmi Gallery
 class BottomPillNavigation extends StatelessWidget {
   final int currentIndex;
   final Function(int) onTap;
@@ -15,44 +14,36 @@ class BottomPillNavigation extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 24, left: 80, right: 80),
+      // Exactly spaced floating pill
+      padding: const EdgeInsets.only(bottom: 24, left: 100, right: 100),
       child: Container(
-        height: 60,
+        height: 56, // Match exact height ratio
         decoration: BoxDecoration(
-          color: AppColors.navBackground,
-          borderRadius: BorderRadius.circular(30), // Makes it pill-shaped
+          color: const Color(0xFFFDFDFD), // Clean off-white
+          borderRadius: BorderRadius.circular(28), // Pill shape
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
+              color: Colors.black.withValues(alpha: 0.08),
+              blurRadius: 15,
+              offset: const Offset(0, 5),
             ),
           ],
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            // Photos Tab
+            // Photos Tab - No labels, just icons!
             _buildNavItem(
-              icon: Icons.photo_library_outlined,
-              activeIcon: Icons.photo_library,
-              label: 'Photos',
+              icon: Icons.image_outlined,
+              activeIcon: Icons.image,
               isActive: currentIndex == 0,
               onTap: () => onTap(0),
             ),
 
-            // Vertical divider
-            Container(
-              width: 1,
-              height: 30,
-              color: Colors.grey.withOpacity(0.3),
-            ),
-
-            // Albums Tab
+            // Albums Tab - No labels, just icons!
             _buildNavItem(
-              icon: Icons.auto_awesome_outlined,
-              activeIcon: Icons.auto_awesome,
-              label: 'Albums',
+              icon: Icons.auto_awesome_mosaic_outlined,
+              activeIcon: Icons.auto_awesome_mosaic,
               isActive: currentIndex == 1,
               onTap: () => onTap(1),
             ),
@@ -62,34 +53,26 @@ class BottomPillNavigation extends StatelessWidget {
     );
   }
 
-  /// Builds individual navigation item
+  /// Builds individual navigation item (Icon Only)
   Widget _buildNavItem({
     required IconData icon,
     required IconData activeIcon,
-    required String label,
     required bool isActive,
     required VoidCallback onTap,
   }) {
     return Expanded(
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(30),
+        borderRadius: BorderRadius.circular(28),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
               isActive ? activeIcon : icon,
-              color: isActive ? AppColors.navActive : AppColors.navInactive,
-              size: 26,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
-                color: isActive ? AppColors.navActive : AppColors.navInactive,
-              ),
+              color: isActive
+                  ? Colors.black
+                  : Colors.black45, // Crisp black/grey contrast
+              size: 28,
             ),
           ],
         ),

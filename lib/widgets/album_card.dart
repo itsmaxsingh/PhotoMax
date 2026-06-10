@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:photo_manager/photo_manager.dart';
+import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
 import '../models/album.dart';
 import '../utils/app_colors.dart';
 
 /// Reusable album card for grid and list views
-class AlbumCard extends StatelessWidget {
+class AlbumCard extends StatefulWidget {
   final Album album;
   final int itemCount;
   final VoidCallback? onTap;
   final bool showPrivateBadge;
+  final AssetEntity? coverAsset; // ✅ NEW: Optional cover asset
 
   const AlbumCard({
     super.key,
@@ -15,12 +18,54 @@ class AlbumCard extends StatelessWidget {
     required this.itemCount,
     this.onTap,
     this.showPrivateBadge = false,
+    this.coverAsset, // ✅ NEW
   });
+
+  @override
+  State<AlbumCard> createState() => _AlbumCardState();
+}
+
+class _AlbumCardState extends State<AlbumCard> {
+  AssetEntity? _loadedCoverAsset;
+  bool _isLoadingCover = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // ✅ NEW: Load cover image if coverAssetId exists
+    if (widget.coverAsset != null) {
+      _loadedCoverAsset = widget.coverAsset;
+    } else if (widget.album.coverAssetId != null) {
+      _loadCoverAsset();
+    }
+  }
+
+  // ✅ NEW: Load cover asset from ID
+  Future<void> _loadCoverAsset() async {
+    if (widget.album.coverAssetId == null) return;
+
+    setState(() => _isLoadingCover = true);
+
+    try {
+      final asset = await AssetEntity.fromId(widget.album.coverAssetId!);
+      if (mounted) {
+        setState(() {
+          _loadedCoverAsset = asset;
+          _isLoadingCover = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading cover asset: $e');
+      if (mounted) {
+        setState(() => _isLoadingCover = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: onTap,
+      onTap: widget.onTap,
       borderRadius: BorderRadius.circular(16),
       child: Container(
         decoration: BoxDecoration(
@@ -34,49 +79,18 @@ class AlbumCard extends StatelessWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  // Cover image
-                  if (album.coverAssetId != null)
-                    ClipRRect(
-                      borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(16),
-                      ),
-                      child: Image.asset(
-                        'assets/placeholder.jpg', // Replace with real cover
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            color: Colors.grey[300],
-                            child: const Icon(Icons.image_outlined),
-                          );
-                        },
-                      ),
-                    )
-                  else
-                    // Default icon based on album type
-                    Container(
-                      margin: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Center(
-                        child: Icon(
-                          _getAlbumIcon(album.id),
-                          size: 32,
-                          color: AppColors.iconGray,
-                        ),
-                      ),
-                    ),
+                  // ✅ UPDATED: Show real cover image or icon
+                  _buildCoverImage(),
 
                   // Private badge
-                  if (showPrivateBadge)
+                  if (widget.showPrivateBadge)
                     Positioned(
                       top: 8,
                       right: 8,
                       child: Container(
                         padding: const EdgeInsets.all(4),
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.7),
+                          color: Colors.black.withValues(alpha: 0.7),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: const Icon(
@@ -97,7 +111,7 @@ class AlbumCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    album.name,
+                    widget.album.name,
                     style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
@@ -108,7 +122,7 @@ class AlbumCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '$itemCount items',
+                    '${widget.itemCount} items',
                     style: TextStyle(
                       fontSize: 12,
                       color: AppColors.textSecondary,
@@ -118,6 +132,67 @@ class AlbumCard extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  // ✅ NEW: Build cover image widget
+  Widget _buildCoverImage() {
+    // Show loaded cover asset
+    if (_loadedCoverAsset != null) {
+      return ClipRRect(
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(16),
+        ),
+        child: AssetEntityImage(
+          _loadedCoverAsset!,
+          isOriginal: false,
+          thumbnailSize: const ThumbnailSize.square(200),
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return _buildDefaultIcon();
+          },
+        ),
+      );
+    }
+
+    // Show loading indicator
+    if (_isLoadingCover) {
+      return Container(
+        decoration: BoxDecoration(
+          color: Colors.grey[300],
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(16),
+          ),
+        ),
+        child: const Center(
+          child: SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    }
+
+    // Default icon fallback
+    return _buildDefaultIcon();
+  }
+
+  // ✅ NEW: Default icon when no cover image
+  Widget _buildDefaultIcon() {
+    return Container(
+      margin: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Center(
+        child: Icon(
+          _getAlbumIcon(widget.album.id),
+          size: 32,
+          color: AppColors.iconGray,
         ),
       ),
     );
