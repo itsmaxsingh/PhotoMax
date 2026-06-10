@@ -134,7 +134,6 @@ class _DeviceFolderDetailScreenState extends State<DeviceFolderDetailScreen> {
         await Share.shareXFiles(validFiles);
       }
     } catch (e) {
-      // ✅ FIXED: Changed to `mounted` for State classes
       if (!mounted) {
         return;
       }
@@ -190,7 +189,6 @@ class _DeviceFolderDetailScreenState extends State<DeviceFolderDetailScreen> {
 
     await DeletedPhotosService.deletePhotos(selectedIds);
 
-    // ✅ FIXED: Changed to `mounted` for State classes
     if (!mounted) {
       return;
     }
@@ -198,7 +196,6 @@ class _DeviceFolderDetailScreenState extends State<DeviceFolderDetailScreen> {
     _exitSelectionMode();
     await _loadFolderContents();
 
-    // ✅ FIXED: Changed to `mounted` for State classes
     if (!mounted) {
       return;
     }
@@ -452,6 +449,7 @@ class _MoveToFolderSheet extends StatefulWidget {
 class _MoveToFolderSheetState extends State<_MoveToFolderSheet> {
   List<AssetPathEntity> _allFolders = [];
   bool _isLoading = true;
+  bool _isMoving = false;
 
   @override
   void initState() {
@@ -463,8 +461,9 @@ class _MoveToFolderSheetState extends State<_MoveToFolderSheet> {
     setState(() {
       _isLoading = true;
     });
-
     final permission = await PhotoManager.requestPermissionExtend();
+    if (!mounted) return;
+
     if (!permission.hasAccess) {
       setState(() {
         _isLoading = false;
@@ -477,21 +476,19 @@ class _MoveToFolderSheetState extends State<_MoveToFolderSheet> {
           type: RequestType.common, onlyAll: false);
       final filteredFolders = <AssetPathEntity>[];
       for (final folder in folders) {
-        if (folder.id == widget.currentFolderId) {
-          continue;
-        }
+        if (folder.id == widget.currentFolderId) continue;
         final count = await folder.assetCountAsync;
-        if (count > 0 && !folder.isAll) {
-          filteredFolders.add(folder);
-        }
+        if (count > 0 && !folder.isAll) filteredFolders.add(folder);
       }
       filteredFolders.sort((a, b) => a.name.compareTo(b.name));
 
+      if (!mounted) return;
       setState(() {
         _allFolders = filteredFolders;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
@@ -499,54 +496,41 @@ class _MoveToFolderSheetState extends State<_MoveToFolderSheet> {
   }
 
   Future<void> _moveToDeviceFolder(AssetPathEntity targetFolder) async {
+    setState(() {
+      _isMoving = true;
+    });
+
     final hasPermission =
         await FileManagerService.checkAndRequestManageStorage();
 
-    // ✅ FIXED: Changed to `mounted` for State classes
-    if (!mounted) {
-      return;
-    }
-
+    if (!mounted) return;
     if (!hasPermission) {
       Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text(
-                'Please grant "All files access" in Settings, then try moving again.')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Please grant "All files access" in Settings.')));
       return;
     }
-
-    Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-          content: Text('Moving ${widget.selectedAssetIds.length} item(s)...'),
-          duration: const Duration(seconds: 2)),
-    );
 
     try {
       final assets = <AssetEntity>[];
       for (final id in widget.selectedAssetIds) {
         final asset = await AssetEntity.fromId(id);
-        if (asset != null) {
-          assets.add(asset);
-        }
+        if (asset != null) assets.add(asset);
       }
 
+      // Get destination path
       String? destPath;
       final targetAssets =
           await targetFolder.getAssetListPaged(page: 0, size: 1);
       if (targetAssets.isNotEmpty) {
         final file = await targetAssets.first.file;
-        if (file != null) {
-          destPath = file.parent.path;
-        }
+        if (file != null) destPath = file.parent.path;
       }
 
       destPath ??= await FileManagerService.getFolderPath(targetFolder.name);
 
-      if (destPath == null) {
-        throw Exception('Could not locate the destination folder');
+      if (destPath == null || destPath.isEmpty) {
+        throw Exception('Could not find destination folder');
       }
 
       int successCount = 0;
@@ -556,62 +540,69 @@ class _MoveToFolderSheetState extends State<_MoveToFolderSheet> {
           if (file != null) {
             final moved =
                 await FileManagerService.moveFile(file.path, destPath);
-            if (moved) {
-              successCount++;
-            }
+            if (moved) successCount++;
           }
         } catch (e) {
-          debugPrint('Error moving: $e');
+          debugPrint('Error moving file: $e');
         }
       }
 
-      // ✅ FIXED: Changed to `mounted` for State classes
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
+      Navigator.pop(context);
       widget.onMoveComplete();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$successCount item(s) moved successfully')),
-      );
+          SnackBar(content: Text('$successCount item(s) moved successfully')));
     } catch (e) {
-      debugPrint('Error handling move operation: $e');
+      debugPrint('Error: $e');
+      if (mounted) {
+        setState(() {
+          _isMoving = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
+      }
     }
   }
 
   Future<void> _addToUserAlbum(Album album) async {
-    Navigator.pop(context);
+    setState(() {
+      _isMoving = true;
+    });
     await AlbumPhotoService.addPhotosToAlbum(album.id, widget.selectedAssetIds);
     if (album.coverAssetId == null && widget.selectedAssetIds.isNotEmpty) {
       await AlbumService.updateAlbumCover(
           album.id, widget.selectedAssetIds.first);
     }
-
-    // ✅ FIXED: Changed to `mounted` for State classes
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
+    Navigator.pop(context);
     widget.onMoveComplete();
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-            '${widget.selectedAssetIds.length} item(s) added to ${album.name}')));
   }
 
   Future<void> _moveToPrivate() async {
-    Navigator.pop(context);
+    setState(() {
+      _isMoving = true;
+    });
     await PrivateFolderService.addPhotos(widget.selectedAssetIds);
-
-    // ✅ FIXED: Changed to `mounted` for State classes
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
+    Navigator.pop(context);
     widget.onMoveComplete();
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-            '${widget.selectedAssetIds.length} item(s) moved to Private')));
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isMoving) {
+      return const SafeArea(
+          child: SizedBox(
+              height: 200,
+              child: Center(
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('Moving items...',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500))
+              ]))));
+    }
+
     AssetEntity? firstSelectedAsset;
     if (widget.selectedAssetIds.isNotEmpty && widget.assets.isNotEmpty) {
       firstSelectedAsset = widget.assets
@@ -627,67 +618,49 @@ class _MoveToFolderSheetState extends State<_MoveToFolderSheet> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Center(
-            child: Container(
-              margin: const EdgeInsets.only(top: 12, bottom: 16),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
+              child: Container(
+                  margin: const EdgeInsets.only(top: 12, bottom: 16),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2)))),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child:
+                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                 if (firstSelectedAsset != null)
-                  Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      ClipRRect(
+                  Stack(clipBehavior: Clip.none, children: [
+                    ClipRRect(
                         borderRadius: BorderRadius.circular(4),
                         child: SizedBox(
-                          width: 30,
-                          height: 30,
-                          child: AssetEntityImage(firstSelectedAsset,
-                              isOriginal: false,
-                              thumbnailSize: const ThumbnailSize.square(100),
-                              fit: BoxFit.cover),
-                        ),
-                      ),
-                      Positioned(
+                            width: 30,
+                            height: 30,
+                            child: AssetEntityImage(firstSelectedAsset,
+                                isOriginal: false,
+                                thumbnailSize: const ThumbnailSize.square(100),
+                                fit: BoxFit.cover))),
+                    Positioned(
                         top: -6,
                         right: -6,
                         child: Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: const BoxDecoration(
-                            color: AppColors.accentBlue,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Text(
-                            '${widget.selectedAssetIds.length}',
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                            padding: const EdgeInsets.all(4),
+                            decoration: const BoxDecoration(
+                                color: AppColors.accentBlue,
+                                shape: BoxShape.circle),
+                            child: Text('${widget.selectedAssetIds.length}',
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold))))
+                  ]),
                 const SizedBox(width: 12),
-                const Text(
-                  'Add items',
-                  style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black),
-                ),
-              ],
-            ),
-          ),
+                const Text('Add items',
+                    style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black))
+              ])),
           const SizedBox(height: 16),
           SizedBox(
             height: 110,
@@ -701,15 +674,17 @@ class _MoveToFolderSheetState extends State<_MoveToFolderSheet> {
                   iconColor: AppColors.accentBlue,
                   onTap: () {
                     Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text(
+                            'Please create an album from the Albums tab first.')));
                   },
                 ),
                 const SizedBox(width: 12),
                 _buildHorizontalActionItem(
-                  icon: Icons.lock_outline,
-                  label: 'Private\nalbum',
-                  iconColor: AppColors.accentBlue,
-                  onTap: _moveToPrivate,
-                ),
+                    icon: Icons.lock_outline,
+                    label: 'Private\nalbum',
+                    iconColor: AppColors.accentBlue,
+                    onTap: _moveToPrivate),
               ],
             ),
           ),
@@ -720,32 +695,26 @@ class _MoveToFolderSheetState extends State<_MoveToFolderSheet> {
                     child: CircularProgressIndicator()))
           else if (combinedList.isNotEmpty) ...[
             const Padding(
-              padding: EdgeInsets.fromLTRB(20, 16, 20, 12),
-              child: Text(
-                'My albums',
-                style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF7986CB)),
-              ),
-            ),
+                padding: EdgeInsets.fromLTRB(20, 16, 20, 12),
+                child: Text('My albums',
+                    style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF7986CB)))),
             ConstrainedBox(
               constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(context).size.height * 0.4,
-              ),
+                  maxHeight: MediaQuery.of(context).size.height * 0.4),
               child: GridView.builder(
                 shrinkWrap: true,
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 3,
-                  mainAxisSpacing: 12,
-                  crossAxisSpacing: 12,
-                  childAspectRatio: 0.8,
-                ),
+                    crossAxisCount: 3,
+                    mainAxisSpacing: 12,
+                    crossAxisSpacing: 12,
+                    childAspectRatio: 0.8),
                 itemCount: combinedList.length,
                 itemBuilder: (context, index) {
                   final item = combinedList[index];
-
                   if (item is Album) {
                     final itemCount =
                         AlbumPhotoService.getAlbumPhotoCount(item.id);
@@ -755,16 +724,30 @@ class _MoveToFolderSheetState extends State<_MoveToFolderSheet> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Expanded(
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: AppColors.surfaceGray,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: const Center(
-                                  child: Icon(Icons.photo_album,
-                                      color: Colors.grey)),
-                            ),
-                          ),
+                              child:
+                                  FutureBuilder<AssetEntity?>(future: () async {
+                            final photoIds =
+                                AlbumPhotoService.getPhotosInAlbum(item.id);
+                            if (photoIds.isNotEmpty)
+                              return await AssetEntity.fromId(photoIds.first);
+                            return null;
+                          }(), builder: (context, snapshot) {
+                            return Container(
+                                decoration: BoxDecoration(
+                                    color: AppColors.surfaceGray,
+                                    borderRadius: BorderRadius.circular(12)),
+                                child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: snapshot.data != null
+                                        ? AssetEntityImage(snapshot.data!,
+                                            isOriginal: false,
+                                            thumbnailSize:
+                                                const ThumbnailSize.square(200),
+                                            fit: BoxFit.cover)
+                                        : const Center(
+                                            child: Icon(Icons.photo_album,
+                                                color: Colors.grey))));
+                          })),
                           const SizedBox(height: 6),
                           Text(item.name,
                               style: const TextStyle(
@@ -786,30 +769,47 @@ class _MoveToFolderSheetState extends State<_MoveToFolderSheet> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Expanded(
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: AppColors.surfaceGray,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: const Center(
-                                  child:
-                                      Icon(Icons.folder, color: Colors.grey)),
-                            ),
-                          ),
+                              child:
+                                  FutureBuilder<AssetEntity?>(future: () async {
+                            final assets =
+                                await item.getAssetListPaged(page: 0, size: 1);
+                            return assets.isNotEmpty ? assets.first : null;
+                          }(), builder: (context, snapshot) {
+                            return Container(
+                                decoration: BoxDecoration(
+                                    color: AppColors.surfaceGray,
+                                    borderRadius: BorderRadius.circular(12)),
+                                child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: snapshot.data != null
+                                        ? AssetEntityImage(snapshot.data!,
+                                            isOriginal: false,
+                                            thumbnailSize:
+                                                const ThumbnailSize.square(200),
+                                            fit: BoxFit.cover)
+                                        : const Center(
+                                            child: Icon(Icons.folder,
+                                                color: Colors.grey))));
+                          })),
                           const SizedBox(height: 6),
-                          Text(item.name,
-                              style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w500,
-                                  color: Colors.black),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis),
                           FutureBuilder<int>(
                               future: item.assetCountAsync,
                               builder: (context, snapshot) {
-                                return Text('${snapshot.data ?? 0}',
-                                    style: const TextStyle(
-                                        fontSize: 11, color: Colors.grey));
+                                return Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(item.name,
+                                          style: const TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w500,
+                                              color: Colors.black),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis),
+                                      Text('${snapshot.data ?? 0}',
+                                          style: const TextStyle(
+                                              fontSize: 11, color: Colors.grey))
+                                    ]);
                               })
                         ],
                       ),
@@ -832,30 +832,22 @@ class _MoveToFolderSheetState extends State<_MoveToFolderSheet> {
       required Color iconColor,
       required VoidCallback onTap}) {
     return GestureDetector(
-      onTap: onTap,
-      child: SizedBox(
-        width: 80,
-        child: Column(
-          children: [
-            Container(
-              width: 70,
-              height: 70,
-              decoration: BoxDecoration(
-                color: const Color(0xFFF5F5F5),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Icon(icon, color: iconColor, size: 32),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 12, color: Colors.black87),
-              maxLines: 2,
-            ),
-          ],
-        ),
-      ),
-    );
+        onTap: onTap,
+        child: SizedBox(
+            width: 80,
+            child: Column(children: [
+              Container(
+                  width: 70,
+                  height: 70,
+                  decoration: BoxDecoration(
+                      color: const Color(0xFFF5F5F5),
+                      borderRadius: BorderRadius.circular(16)),
+                  child: Icon(icon, color: iconColor, size: 32)),
+              const SizedBox(height: 6),
+              Text(label,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 12, color: Colors.black87),
+                  maxLines: 2)
+            ])));
   }
 }

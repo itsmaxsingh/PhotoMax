@@ -34,9 +34,22 @@ class MainLayoutScreen extends StatefulWidget {
 
 class _MainLayoutScreenState extends State<MainLayoutScreen> {
   int _currentIndex = 0;
-  bool _isSelectionMode = false; // ✅ NEW: Tracks if we are selecting photos
+  bool _isSelectionMode = false;
 
+  // Force the controller to explicitly start at 0
   final PageController _pageController = PageController(initialPage: 0);
+
+  @override
+  void initState() {
+    super.initState();
+    // ✅ FIX 3: Absolutely forces the app to jump to the Photos page immediately on boot
+    _currentIndex = 0;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _pageController.hasClients) {
+        _pageController.jumpToPage(0);
+      }
+    });
+  }
 
   void _onTabTapped(int index) {
     setState(() {
@@ -69,7 +82,6 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
               });
             },
             children: [
-              // ✅ NEW: Passes the selection state signal up to this main file
               PhotosScreen(
                 onSelectionModeChanged: (isSelecting) {
                   setState(() {
@@ -80,14 +92,10 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
               const AlbumsScreen(),
             ],
           ),
-
-          // ✅ NEW: Smoothly animates the pill off the bottom of the screen!
           AnimatedPositioned(
             duration: const Duration(milliseconds: 250),
             curve: Curves.easeInOutBack,
-            bottom: _isSelectionMode
-                ? -100
-                : 0, // Moves it down 100 pixels when selecting
+            bottom: _isSelectionMode ? -100 : 0,
             left: 0,
             right: 0,
             child: BottomPillNavigation(
