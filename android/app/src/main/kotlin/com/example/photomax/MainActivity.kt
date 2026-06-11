@@ -1,12 +1,16 @@
 package com.example.photomax
 
+import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.Settings
 import androidx.annotation.NonNull
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -15,6 +19,7 @@ import java.io.File
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "com.photomax.app/file_manager"
     private val REQUEST_MANAGE_STORAGE = 1001
+    private val REQUEST_MEDIA_PERMISSIONS = 1002
     private var pendingResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
@@ -23,25 +28,14 @@ class MainActivity: FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "requestManageStorage" -> {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        if (Environment.isExternalStorageManager()) {
-                            result.success(true)
-                        } else {
-                            // Store the result to return later
-                            pendingResult = result
-                            try {
-                                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-                                intent.data = Uri.parse("package:$packageName")
-                                startActivityForResult(intent, REQUEST_MANAGE_STORAGE)
-                            } catch (e: Exception) {
-                                val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                                startActivityForResult(intent, REQUEST_MANAGE_STORAGE)
-                            }
-                        }
-                    } else {
-                        // For Android versions below 11, permission is granted by default
-                        result.success(true)
-                    }
+                    requestStoragePermissions(result)
+                }
+                "checkPermission" -> {
+                    result.success(hasStoragePermission())
+                }
+                "openSettings" -> {
+                    openAppSettings()
+                    result.success(null)
                 }
                 "moveFile" -> {
                     val sourcePath = call.argument<String>("sourcePath")
@@ -73,12 +67,10 @@ class MainActivity: FlutterActivity() {
                         val success = srcFile.renameTo(destFile)
                         
                         if (success) {
-                            // Notify media scanner
                             val mediaScanIntent = Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE)
                             mediaScanIntent.data = Uri.fromFile(destFile)
                             sendBroadcast(mediaScanIntent)
                             
-                            // Also scan the source directory
                             val sourceParent = Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE)
                             sourceParent.data = Uri.fromFile(srcFile.parentFile)
                             sendBroadcast(sourceParent)
@@ -145,6 +137,71 @@ class MainActivity: FlutterActivity() {
         }
     }
 
+    private fun hasStoragePermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    private fun requestStoragePermissions(result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Android 11+ (API 30+) - Use MANAGE_EXTERNAL_STORAGE
+            if (Environment.isExternalStorageManager()) {
+                result.success(true)
+            } else {
+                pendingResult = result
+                try {
+                    val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                    intent.data = Uri.parse("package:$packageName")
+                    startActivityForResult(intent, REQUEST_MANAGE_STORAGE)
+                } catch (e: Exception) {
+                    val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                    startActivityForResult(intent, REQUEST_MANAGE_STORAGE)
+                }
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            // Android 13+ (API 33+) - Use READ_MEDIA_IMAGES
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED) {
+                result.success(true)
+            } else {
+                pendingResult = result
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(
+                        Manifest.permission.READ_MEDIA_IMAGES,
+                        Manifest.permission.READ_MEDIA_VIDEO
+                    ),
+                    REQUEST_MEDIA_PERMISSIONS
+                )
+            }
+        } else {
+            // Android 12 and below - Use READ_EXTERNAL_STORAGE
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
+                result.success(true)
+            } else {
+                pendingResult = result
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(
+                        Manifest.permission.READ_EXTERNAL_STORAGE,
+                        Manifest.permission.WRITE_EXTERNAL_STORAGE
+                    ),
+                    REQUEST_MEDIA_PERMISSIONS
+                )
+            }
+        }
+    }
+
+    private fun openAppSettings() {
+        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+        intent.data = Uri.parse("package:$packageName")
+        startActivity(intent)
+    }
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         
@@ -154,6 +211,16 @@ class MainActivity: FlutterActivity() {
                 pendingResult?.success(granted)
                 pendingResult = null
             }
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        
+        if (requestCode == REQUEST_MEDIA_PERMISSIONS) {
+            val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+            pendingResult?.success(granted)
+            pendingResult = null
         }
     }
 }

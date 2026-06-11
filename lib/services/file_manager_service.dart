@@ -4,7 +4,18 @@ import 'package:flutter/foundation.dart';
 class FileManagerService {
   static const platform = MethodChannel('com.photomax.app/file_manager');
 
-  /// Check and request Manage External Storage permission
+  /// Check if storage permission is granted
+  static Future<bool> checkPermission() async {
+    try {
+      final bool result = await platform.invokeMethod('checkPermission');
+      return result;
+    } on PlatformException catch (e) {
+      debugPrint('❌ Error checking permission: ${e.message}');
+      return false;
+    }
+  }
+
+  /// Request storage permission
   static Future<bool> checkAndRequestManageStorage() async {
     try {
       debugPrint('🔐 Requesting storage permission...');
@@ -20,11 +31,19 @@ class FileManagerService {
     }
   }
 
+  /// Open app settings page
+  static Future<void> openSettings() async {
+    try {
+      await platform.invokeMethod('openSettings');
+    } on PlatformException catch (e) {
+      debugPrint('❌ Error opening settings: ${e.message}');
+    }
+  }
+
   /// Move file to another folder using native Android code
   static Future<bool> moveFile(
       String sourcePath, String destinationFolderPath) async {
     try {
-      // Validate paths before sending to native code
       if (sourcePath.isEmpty || destinationFolderPath.isEmpty) {
         debugPrint(
             '❌ Invalid paths: source=$sourcePath, dest=$destinationFolderPath');
